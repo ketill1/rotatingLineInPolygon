@@ -5,9 +5,7 @@ const offset = {
   x: 250,
   y: 250,
 };
-
-const lineDistance = 10; // Define the distance between lines in the generated path
-let polygon = [
+const polygon = [
   // Define the initial polygon points  [10, 50],
   [10, 50],
   [500, 10],
@@ -19,55 +17,38 @@ let polygon = [
   [100, 400],
   [50, 500],
 ];
+const rotSpeed = 0.5; // Define the rotation speed
+const lineDistance = 10; // Define the distance between lines in the generated path
+let angle = 0; // Initialize the angle of rotation
+let pathGenerated = false;
 
 // Add the offset to the polygon points
-function addOffset(points, offset) {
+function addOffset(points) {
   return points.map((point) => {
-    const x = point[0];
-    const y = point[1];
-    const offsetX = x + offset.x;
-    const offsetY = y + offset.y;
-    return [offsetX, offsetY];
+    const [x, y] = point;
+    return [x + offset.x, y + offset.y];
   });
-}
-polygon = addOffset(polygon, offset);
-
-// Define a function to generate a 2D rotation matrix
-function rotationMatrix(angle) {
-  const cos = Math.cos(angle);
-  const sin = Math.sin(angle);
-  return [
-    [cos, -sin],
-    [sin, cos],
-  ];
 }
 
 // Rotate a polygon by a given angle using a rotation matrix
 function rotatePolygon(points, angle) {
-  const matrix = rotationMatrix(angle);
-  return points.map((point) => {
-    const x = point[0];
-    const y = point[1];
-    const rotatedX = matrix[0][0] * x + matrix[0][1] * y;
-    const rotatedY = matrix[1][0] * x + matrix[1][1] * y;
-    return [rotatedX, rotatedY];
-  });
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  return points.map(([x, y]) => [cos * x - sin * y, sin * x + cos * y]);
 }
 
-let angle = 0; // Initialize the angle of rotation
-function animate() {
+function animate(polygon) {
   // Define the animation function
   ctx.clearRect(0, 0, canvas.width, canvas.height); // Clear the canvas
-  let rotSpeed = 0.5; // Define the rotation speed
-  polygon = rotatePolygon(polygon, angle); // Rotate the polygon
-  const lines = generatePath(polygon, lineDistance, angle); // Generate the path
-  polygon = rotatePolygon(polygon, -angle); // Rotate the polygon back to its original position
+  const rotatedPolygon = rotatePolygon(offsetPolygon, angle); // Rotate the polygon
+  const lines = generatePath(rotatedPolygon, lineDistance); // Generate the path
+  const finalPolygon = rotatePolygon(rotatedPolygon, -angle); // Rotate the polygon back to its original position
 
   // Draw the polygon
   ctx.beginPath();
-  ctx.moveTo(polygon[0][0], polygon[0][1]);
-  for (let i = 1; i < polygon.length; i++) {
-    ctx.lineTo(polygon[i][0], polygon[i][1]);
+  ctx.moveTo(finalPolygon[0][0], finalPolygon[0][1]);
+  for (let i = 1; i < finalPolygon.length; i++) {
+    ctx.lineTo(finalPolygon[i][0], finalPolygon[i][1]);
   }
   ctx.closePath();
   ctx.stroke();
@@ -82,9 +63,30 @@ function animate() {
   angle += (rotSpeed * Math.PI) / 180; // Update the rotation angle
   requestAnimationFrame(animate); // Request another animation frame
 }
-animate(); // Call the animation function
 
-function generatePath(polygon, lineDistance, angle) {
+function findIntersections(polygon, y) {
+  const intersections = [];
+
+  for (let i = 0; i < polygon.length; i++) {
+    const j = (i + 1) % polygon.length;
+    const [x1, y1] = polygon[i];
+    const [x2, y2] = polygon[j];
+
+    if ((y1 < y && y2 >= y) || (y2 < y && y1 >= y)) {
+      const x = ((y - y1) / (y2 - y1)) * (x2 - x1) + x1;
+      intersections.push([x, y]);
+    }
+  }
+
+  return intersections;
+}
+
+function sortIntersections(intersections) {
+  return intersections.sort((a, b) => a[0] - b[0]);
+}
+
+function generatePath(polygon, lineDistance) {
+  // const { minY, maxY } = findMinMaxY(polygon);
   const lines = [];
   const pathLines = [];
   let minY = Number.MAX_VALUE,
@@ -96,35 +98,25 @@ function generatePath(polygon, lineDistance, angle) {
   }
   // Generate the lines
   for (let y = minY + lineDistance; y < maxY; y += lineDistance) {
-    let intersections = [];
+    //let intersections = [];
     // Find the intersections of the line with each edge of the polygon
-    for (let i = 0; i < polygon.length; i++) {
-      let j = (i + 1) % polygon.length;
-      let x1 = polygon[i][0],
-        y1 = polygon[i][1];
-      let x2 = polygon[j][0],
-        y2 = polygon[j][1];
-      if ((y1 < y && y2 >= y) || (y2 < y && y1 >= y)) {
-        let x = ((y - y1) / (y2 - y1)) * (x2 - x1) + x1;
-        intersections.push([x, y]);
-      }
-    }
+    const intersections = findIntersections(polygon, y);
     // Sort the intersections by x-coordinate
-    intersections.sort((a, b) => a[0] - b[0]);
+    const sortedIntersections = sortIntersections(intersections);
+
     // Add the line
-    intersections = rotatePolygon(intersections, -angle);
-    if (intersections.length >= 2) {
-      for (let i = 0; i < intersections.length - 1; i += 2) {
-        pathLines.push({
-          start: intersections[i],
-          end: intersections[i + 1],
-          yawStart: 0,
-          yawEnd: 0,
-        });
-        alternateSides = false;
-      }
+    const rotatedIntersections = rotatePolygon(sortedIntersections, -angle);
+
+    for (let i = 0; i < rotatedIntersections.length - 1; i += 2) {
+      const start = rotatedIntersections[i];
+      const end = rotatedIntersections[i + 1];
+      pathLines.push({ start, end, yawStart: 0, yawEnd: 0 });
+      alternateSides = false;
     }
   }
   pathGenerated = true;
   return pathLines;
 }
+
+const offsetPolygon = addOffset(polygon);
+animate(offsetPolygon); // Call the animation function
